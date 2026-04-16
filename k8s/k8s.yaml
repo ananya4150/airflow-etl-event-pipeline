@@ -1,0 +1,109 @@
+##############################
+# Namespace - isolated enviornment
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres
+---
+# Config Map - database credentials
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-secret
+  namespace: postgres
+  labels:
+    app: postgres
+data:
+  POSTGRES_DB: mydb                  #create mydb database
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: "pass" #plain text here
+---
+# Persistent Volume - device storage 
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pg-volume
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 1Gi     #you can customize
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: "/Users/ananya/data/postgres"    #set your path. windows use "/c/users/myuser/data/postgres" -- include quotes
+---
+# Volume Claim - requested storage 
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-volume-claim
+  namespace: postgres
+  labels:
+    app: postgres
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi        #you can customize
+  volumeName: pg-volume
+---
+# Deployment - main database container
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: 'postgres:18'
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TZ
+              value: "America/New_York"   # <-- your timezone
+          resources:
+            requests:
+              cpu: 100m                # <- minimum CPU Time
+              memory: 128Mi            # <- minimum memory
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: postgres-secret
+          volumeMounts:
+            - mountPath: /var/lib/postgresql
+              name: postgresdata
+      volumes:
+        - name: postgresdata
+          persistentVolumeClaim:
+            claimName: postgres-volume-claim
+---
+# service  - point to expose the dataset
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-service
+  namespace: postgres
+spec:
+  type: NodePort
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      nodePort: 32432   # must be between 30000–32767
